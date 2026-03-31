@@ -1190,6 +1190,195 @@
         "responseParameters": [],
         "responseExample": "Done",
         "responseDescription": "Confirms that the Affiliate Form has been submitted successfully"
+    },
+
+    {
+        "endpoint":"/worker/bag/active",
+        "section":"worker",
+        "method":"GET",
+        "description":"Get the worker's current active WasteBag for today (status = HOLDING). A new bag is created automatically when the worker marks an order as picked up. If the worker has handed over their bag and started a new one, this returns the most recent HOLDING bag.",
+        "parameters":[
+            {
+                "paramName":"userID",
+                "paramType":"string (header/auth)",
+                "paramDescription":"The Worker ID, taken from the Authorization token"
+            }
+        ],
+        "responseExample":{
+            "id": 14,
+            "bag_date": "2026-03-31",
+            "status": "HOLDING",
+            "orders_count": 3,
+            "created_at": "2026-03-31T08:12:00.000Z",
+            "bag_items": [
+                { "id": 1, "waste_type": "بلاستيك", "collected_weight": 12.5, "warehouse_received_weight": null, "difference": null },
+                { "id": 2, "waste_type": "معادن",    "collected_weight": 7.0,  "warehouse_received_weight": 6.5,  "difference": 0.5  }
+            ],
+            "bag_orders": [
+                { "id": 1, "order": { "id": "ORD-001" }, "b2b_order": null, "added_at": "2026-03-31T08:12:00.000Z" },
+                { "id": 2, "order": null, "b2b_order": { "id": 20101 }, "added_at": "2026-03-31T09:45:00.000Z" }
+            ]
+        },
+        "responseDescription":"Returns the current active (HOLDING) WasteBag for today with all waste items and linked orders. Each bag_item includes collected_weight (from worker pickups), warehouse_received_weight (null until warehouse records it), and difference (collected minus received, null if not yet recorded). Returns 404 if no active bag exists today."
+    },
+    {
+        "endpoint":"/worker/bag/history",
+        "section":"worker",
+        "method":"GET",
+        "description":"Get the worker's full WasteBag history, newest first. Returns all bags the worker has ever had, including handed-over ones.",
+        "parameters":[
+            {
+                "paramName":"userID",
+                "paramType":"string (header/auth)",
+                "paramDescription":"The Worker ID, taken from the Authorization token"
+            },
+            {
+                "paramName":"page",
+                "paramType":"number (optional)",
+                "paramDescription":"Page number for pagination. Defaults to 1."
+            },
+            {
+                "paramName":"limit",
+                "paramType":"number (optional)",
+                "paramDescription":"Number of bags per page. Defaults to 20."
+            }
+        ],
+        "responseExample":[
+            {
+                "id": 14,
+                "bag_date": "2026-03-31",
+                "status": "HOLDING",
+                "orders_count": 3,
+                "created_at": "2026-03-31T08:12:00.000Z",
+                "bag_items": [
+                    { "id": 1, "waste_type": "بلاستيك", "collected_weight": 12.5, "warehouse_received_weight": null, "difference": null }
+                ],
+                "bag_orders": []
+            },
+            {
+                "id": 13,
+                "bag_date": "2026-03-30",
+                "status": "HANDED_OVER",
+                "orders_count": 5,
+                "created_at": "2026-03-30T07:00:00.000Z",
+                "bag_items": [
+                    { "id": 3, "waste_type": "معادن", "collected_weight": 20.0, "warehouse_received_weight": 19.5, "difference": 0.5 }
+                ],
+                "bag_orders": []
+            }
+        ],
+        "responseDescription":"Returns a paginated array of WasteBag objects ordered by creation date descending. Each bag includes its items and linked orders. Difference per item is null if warehouse_received_weight has not been recorded yet."
+    },
+
+    {
+        "endpoint":"/manager/worker_bag",
+        "section":"manager",
+        "method":"GET",
+        "description":"Get a specific worker's WasteBag(s). Behaviour depends on the query params provided: if bagID is given it returns that specific bag; if date is given it returns all bags for that worker on that date (array); if neither is given it returns the worker's current active HOLDING bag for today. Requires Worker read permission.",
+        "parameters":[
+            {
+                "paramName":"workerID",
+                "paramType":"string (required)",
+                "paramDescription":"The ID of the worker whose bag(s) to fetch"
+            },
+            {
+                "paramName":"bagID",
+                "paramType":"number (optional)",
+                "paramDescription":"The specific bag ID to fetch. When provided, returns a single bag object regardless of date."
+            },
+            {
+                "paramName":"date",
+                "paramType":"string YYYY-MM-DD (optional)",
+                "paramDescription":"Return all bags for this worker on the given date. Returns an array."
+            }
+        ],
+        "responseExample":{
+            "id": 14,
+            "bag_date": "2026-03-31",
+            "status": "HOLDING",
+            "orders_count": 3,
+            "created_at": "2026-03-31T08:12:00.000Z",
+            "worker": { "id": "W1", "name": "Ahmed" },
+            "bag_items": [
+                { "id": 1, "waste_type": "بلاستيك", "collected_weight": 12.5, "warehouse_received_weight": 11.0, "difference": 1.5 }
+            ],
+            "bag_orders": [
+                { "id": 1, "order": { "id": "ORD-001" }, "b2b_order": null, "added_at": "2026-03-31T08:12:00.000Z" }
+            ]
+        },
+        "responseDescription":"Returns a single WasteBag object (or array when date param is used) with waste items (including difference), linked orders, and worker info. Returns 404 if no matching bag is found."
+    },
+    {
+        "endpoint":"/manager/todays_bags",
+        "section":"manager",
+        "method":"GET",
+        "description":"Get all workers' WasteBags for today. Optionally filter by status. Requires Worker read permission.",
+        "parameters":[
+            {
+                "paramName":"status",
+                "paramType":"string HOLDING | HANDED_OVER (optional)",
+                "paramDescription":"Filter bags by status. If omitted, returns all bags for today regardless of status."
+            }
+        ],
+        "responseExample":[
+            {
+                "id": 14,
+                "bag_date": "2026-03-31",
+                "status": "HOLDING",
+                "orders_count": 3,
+                "created_at": "2026-03-31T08:12:00.000Z",
+                "worker": { "id": "W1", "name": "Ahmed" },
+                "bag_items": [
+                    { "id": 1, "waste_type": "بلاستيك", "collected_weight": 12.5, "warehouse_received_weight": null, "difference": null }
+                ],
+                "bag_orders": []
+            },
+            {
+                "id": 15,
+                "bag_date": "2026-03-31",
+                "status": "HANDED_OVER",
+                "orders_count": 5,
+                "created_at": "2026-03-31T06:00:00.000Z",
+                "worker": { "id": "W2", "name": "Sara" },
+                "bag_items": [
+                    { "id": 4, "waste_type": "معادن", "collected_weight": 30.0, "warehouse_received_weight": 29.0, "difference": 1.0 }
+                ],
+                "bag_orders": []
+            }
+        ],
+        "responseDescription":"Returns an array of all WasteBags for today across all workers, ordered by creation date descending. Each bag includes the worker info, waste items with difference, and linked orders."
+    },
+    {
+        "endpoint":"/manager/bag/warehouse_receive",
+        "section":"manager",
+        "method":"POST",
+        "description":"Record the warehouse-received weight for each waste type in a WasteBag. After this is saved, the difference (collected minus received) becomes visible per waste type. Does not change the bag status — the handover status endpoint will be added with the warehouse module. Requires Worker write permission.",
+        "parameters":[
+            {
+                "paramName":"bagID",
+                "paramType":"number (required)",
+                "paramDescription":"The ID of the WasteBag to update"
+            },
+            {
+                "paramName":"received_items",
+                "paramType":"array (required)",
+                "paramDescription":"Array of objects, each with waste_type (string) and warehouse_received_weight (number in kg). Only waste types already in the bag can be updated."
+            }
+        ],
+        "responseExample":{
+            "id": 14,
+            "bag_date": "2026-03-31",
+            "status": "HOLDING",
+            "orders_count": 3,
+            "created_at": "2026-03-31T08:12:00.000Z",
+            "worker": { "id": "W1", "name": "Ahmed" },
+            "bag_items": [
+                { "id": 1, "waste_type": "بلاستيك", "collected_weight": 12.5, "warehouse_received_weight": 11.0, "difference": 1.5 },
+                { "id": 2, "waste_type": "معادن",    "collected_weight": 7.0,  "warehouse_received_weight": 7.0,  "difference": 0.0  }
+            ],
+            "bag_orders": []
+        },
+        "responseDescription":"Returns the updated WasteBag with all items reflecting the newly saved warehouse_received_weight values and the computed difference per item. Returns 404 if the bag is not found."
     }
 
 ]

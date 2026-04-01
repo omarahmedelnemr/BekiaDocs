@@ -1,0 +1,3451 @@
+openapi: 3.0.3
+info:
+  title: BekiaPay API
+  description: |
+    Complete API reference for the BekiaPay platform.
+
+    ## Authentication
+    Most endpoints require a Bearer JWT token in the `Authorization` header:
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    ## Permission Levels
+    Manager/Staff endpoints are gated by permission type + level:
+    - **READ** — can view data
+    - **WRITE** — can create/update/delete data
+    - **Super** — bypasses all permission checks
+
+    ## Common Responses
+    | Status | Meaning |
+    |--------|---------|
+    | 200 | Success — returns data or `"Done"` |
+    | 404 | Not found or missing required parameter |
+    | 406 | Business logic error (duplicate, wrong status, etc.) |
+  version: "1.0.0"
+  contact:
+    name: BekiaPay Dev Team
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://api.bekiapay.com
+    description: Production
+
+tags:
+  - name: General
+    description: Authentication, OTP, role info
+  - name: Files
+    description: File upload and retrieval
+  - name: System
+    description: System configuration and cities
+  - name: Customer
+    description: Customer app — orders, receipts, addresses, profile
+  - name: Manager Auth
+    description: Manager/staff login and personal profile
+  - name: Manager Orders
+    description: Order management by staff
+  - name: Manager Workers
+    description: Worker management — zones, working days, info
+  - name: Manager Customers
+    description: Customer management by staff
+  - name: Manager Staff
+    description: Staff accounts and permissions
+  - name: Manager Receipts
+    description: Receipt management
+  - name: Manager Prices
+    description: Waste types and pricing management
+  - name: Manager Analytics
+    description: Dashboard numbers and analytics
+  - name: Manager WasteBags
+    description: Waste bag tracking
+  - name: Manager Affiliate
+    description: Affiliate worker applications
+  - name: Manager Export
+    description: CSV export endpoints
+  - name: Worker
+    description: Worker app — orders, bags, handover
+  - name: B2B Companies
+    description: B2B company and branch management
+  - name: B2B Orders
+    description: B2B order management
+  - name: B2B Receipts
+    description: B2B receipt management
+  - name: B2B Prices
+    description: B2B waste pricing
+  - name: B2B Zones
+    description: B2B zone management
+  - name: Warehouse
+    description: Warehouse CRUD, prices, workers, bag handover
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Done:
+      type: string
+      example: "Done"
+
+    Error:
+      type: string
+      example: "Error message"
+
+    WasteBagStatus:
+      type: string
+      enum: [HOLDING, PENDING_HANDOVER, CONFIRMING, HANDED_OVER]
+
+    TicketReason:
+      type: string
+      enum: [WORKER_REFUSED, WAREHOUSE_REJECTED]
+
+    WasteItem:
+      type: object
+      properties:
+        waste_type: { type: string, example: "Plastic" }
+        collected_weight: { type: number, example: 4.5 }
+        warehouse_received_weight: { type: number, nullable: true, example: 4.2 }
+
+    WarehouseSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        image: { type: string, nullable: true }
+        location: { type: string, nullable: true }
+        location_link: { type: string, nullable: true }
+        zone: { type: string, nullable: true }
+        city: { type: string, nullable: true }
+        nearby_mark: { type: string, nullable: true }
+        contact_person: { type: string, nullable: true }
+        contact_phone: { type: string, nullable: true }
+        active: { type: boolean }
+        workers_count: { type: integer }
+
+    WarehouseDetail:
+      allOf:
+        - $ref: '#/components/schemas/WarehouseSummary'
+        - type: object
+          properties:
+            created_at: { type: string, format: date-time }
+            waste_prices:
+              type: array
+              items:
+                $ref: '#/components/schemas/WarehousePrice'
+            workers:
+              type: array
+              items:
+                $ref: '#/components/schemas/WorkerSummary'
+
+    WarehousePrice:
+      type: object
+      properties:
+        id: { type: integer }
+        waste_type: { type: string, example: "Plastic" }
+        price_per_kg: { type: number, example: 7.5 }
+
+    WorkerSummary:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        profile_image: { type: string, nullable: true }
+        city: { type: string, nullable: true }
+
+    HandoverTicket:
+      type: object
+      properties:
+        id: { type: integer }
+        reason: { $ref: '#/components/schemas/TicketReason' }
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        bag:
+          type: object
+          properties:
+            id: { type: integer }
+            bag_date: { type: string, format: date }
+            status: { $ref: '#/components/schemas/WasteBagStatus' }
+            worker:
+              type: object
+              properties:
+                id: { type: string }
+                name: { type: string }
+        warehouse:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            name: { type: string }
+
+    WasteBagSummary:
+      type: object
+      properties:
+        id: { type: integer }
+        bag_date: { type: string, format: date }
+        status: { $ref: '#/components/schemas/WasteBagStatus' }
+        orders_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        total_price: { type: number, nullable: true }
+        worker:
+          $ref: '#/components/schemas/WorkerSummary'
+        bag_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WasteItem'
+        total_collected: { type: number }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GENERAL
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+  /login:
+    post:
+      tags: [General]
+      summary: Login (all roles)
+      security: []
+      description: Authenticates a user and returns a JWT. Accepts staff, worker, or customer credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone: { type: string, example: "01012345678" }
+                password: { type: string, example: "password123" }
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  role: { type: string, example: "manager" }
+        '404':
+          description: Wrong credentials or account not found
+
+  /role_info:
+    post:
+      tags: [General]
+      summary: Get role info from token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: { type: string }
+      responses:
+        '200':
+          description: Role decoded from token
+    get:
+      tags: [General]
+      summary: Get role info from Bearer token
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Role info
+
+  /check_phone:
+    get:
+      tags: [General]
+      summary: Check if phone number is registered
+      security: []
+      parameters:
+        - in: query
+          name: phone
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Phone status
+
+  /send_otp:
+    post:
+      tags: [General]
+      summary: Send OTP to phone number
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "01012345678" }
+      responses:
+        '200':
+          description: OTP sent
+
+  /verify_otp:
+    post:
+      tags: [General]
+      summary: Verify OTP code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, otp]
+              properties:
+                phone: { type: string }
+                otp: { type: string, example: "1234" }
+      responses:
+        '200':
+          description: OTP valid, returns token
+        '406':
+          description: Invalid or expired OTP
+
+  /web_form:
+    post:
+      tags: [General]
+      summary: Submit order from website contact form
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                address: { type: string }
+                waste_types: { type: array, items: { type: string } }
+      responses:
+        '200':
+          description: Form received
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FILES
+# ─────────────────────────────────────────────────────────────────────────────
+  /upload:
+    post:
+      tags: [Files]
+      summary: Upload a general file (images, docs)
+      security: []
+      description: Returns the stored filename. Use this for warehouse images, etc.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Filename stored on server
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "1712345678_photo.jpg"
+
+  /file/{fileName}:
+    get:
+      tags: [Files]
+      summary: Serve an uploaded file
+      security: []
+      parameters:
+        - in: path
+          name: fileName
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: File binary
+
+  /uploadProfilePic:
+    post:
+      tags: [Files]
+      summary: Upload a profile picture (requires auth)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Profile picture filename
+
+  /profilePic/{fileName}:
+    get:
+      tags: [Files]
+      summary: Serve a profile picture
+      security: []
+      parameters:
+        - in: path
+          name: fileName
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Image binary
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SYSTEM CONFIG
+# ─────────────────────────────────────────────────────────────────────────────
+  /system_cities:
+    get:
+      tags: [System]
+      summary: Get list of cities served by the system
+      security: []
+      responses:
+        '200':
+          description: Array of city names
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
+                example: ["Cairo", "Alexandria"]
+
+  /version:
+    get:
+      tags: [System]
+      summary: Get current app version
+      security: []
+      responses:
+        '200':
+          description: Version string
+
+  /files:
+    get:
+      tags: [System]
+      summary: List all uploaded files
+      security: []
+      responses:
+        '200':
+          description: File list
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CUSTOMER
+# ─────────────────────────────────────────────────────────────────────────────
+  /customer/complete_signup:
+    post:
+      tags: [Customer]
+      summary: Complete customer signup (first-time registration)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, packageID, zoneID]
+              properties:
+                name: { type: string }
+                phone: { type: string, example: "01012345678" }
+                packageID: { type: integer }
+                zoneID: { type: integer }
+      responses:
+        '200':
+          description: Signup complete, returns JWT
+        '406':
+          description: Customer already exists
+
+  /customer/customer_info:
+    get:
+      tags: [Customer]
+      summary: Get logged-in customer info
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Customer profile
+
+  /customer/order:
+    post:
+      tags: [Customer]
+      summary: Place a new pickup order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                addressID: { type: integer }
+                waste_types: { type: array, items: { type: integer } }
+                pickup_date: { type: string, format: date }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Order created
+
+  /customer/active_orders:
+    get:
+      tags: [Customer]
+      summary: Get customer's active orders
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of active orders
+
+  /customer/orders_history:
+    get:
+      tags: [Customer]
+      summary: Get customer's completed/cancelled order history
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Paginated order history
+
+  /customer/order_details:
+    get:
+      tags: [Customer]
+      summary: Get full details of a single order
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: orderID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Order details
+
+  /customer/cancel_order:
+    delete:
+      tags: [Customer]
+      summary: Cancel an active order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Order cancelled
+
+  /customer/addresses:
+    get:
+      tags: [Customer]
+      summary: Get customer's saved addresses
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Address list
+
+  /customer/address:
+    post:
+      tags: [Customer]
+      summary: Add a new address
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zoneID]
+              properties:
+                zoneID: { type: integer }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Address added
+    delete:
+      tags: [Customer]
+      summary: Remove an address
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [addressID]
+              properties:
+                addressID: { type: integer }
+      responses:
+        '200':
+          description: Address removed
+
+  /customer/waste_types:
+    get:
+      tags: [Customer]
+      summary: Get available waste types with icons
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Waste types list
+
+  /customer/waste_prices:
+    get:
+      tags: [Customer]
+      summary: Get current waste prices (public)
+      security: []
+      responses:
+        '200':
+          description: Price list per kg
+
+  /customer/pending_receipts:
+    get:
+      tags: [Customer]
+      summary: Get pending payment receipts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Pending receipts
+
+  /customer/create_receipt:
+    post:
+      tags: [Customer]
+      summary: Create a new receipt/payment request
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Receipt created
+
+  /customer/set_receipt_way:
+    post:
+      tags: [Customer]
+      summary: Set payment method for a receipt
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiptID, methodID]
+              properties:
+                receiptID: { type: integer }
+                methodID: { type: integer }
+      responses:
+        '200':
+          description: Receipt payment method set
+
+  /customer/confirm_order:
+    post:
+      tags: [Customer]
+      summary: Customer confirms order completion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Order confirmed
+
+  /customer/name_edit:
+    post:
+      tags: [Customer]
+      summary: Edit customer name
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          description: Name updated
+
+  /customer/phone_edit:
+    post:
+      tags: [Customer]
+      summary: Edit customer phone number
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newPhone]
+              properties:
+                newPhone: { type: string, example: "01098765432" }
+      responses:
+        '200':
+          description: Phone updated
+        '406':
+          description: Invalid phone or already used
+
+  /customer/delete_account:
+    delete:
+      tags: [Customer]
+      summary: Delete customer account permanently
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Account deleted
+
+  /customer/rate_worker:
+    post:
+      tags: [Customer]
+      summary: Rate a worker after order completion
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, rating]
+              properties:
+                orderID: { type: integer }
+                rating: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string }
+      responses:
+        '200':
+          description: Rating submitted
+
+  /customer/cities:
+    get:
+      tags: [Customer]
+      summary: Get list of available cities
+      security: []
+      responses:
+        '200':
+          description: City list
+
+  /customer/address_zones:
+    get:
+      tags: [Customer]
+      summary: Get address zones (public)
+      security: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Zone list
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER AUTH & PERSONAL
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/login:
+    post:
+      tags: [Manager Auth]
+      summary: Manager/staff login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, password]
+              properties:
+                phone: { type: string, example: "01012345678" }
+                password: { type: string }
+      responses:
+        '200':
+          description: Login successful, returns JWT
+        '404':
+          description: Wrong credentials
+
+  /manager/complete_signup:
+    post:
+      tags: [Manager Auth]
+      summary: Complete staff/manager account setup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, password, token]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                password: { type: string }
+                token: { type: string, description: "Invite token from add_staff" }
+      responses:
+        '200':
+          description: Account created
+
+  /manager/my_info:
+    get:
+      tags: [Manager Auth]
+      summary: Get current logged-in staff info
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Staff profile
+
+  /manager/name_edit:
+    post:
+      tags: [Manager Auth]
+      summary: Edit staff name
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200':
+          description: Name updated
+
+  /manager/phone_edit:
+    post:
+      tags: [Manager Auth]
+      summary: Edit staff phone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string }
+      responses:
+        '200':
+          description: Phone updated
+
+  /manager/edit_password:
+    post:
+      tags: [Manager Auth]
+      summary: Change staff password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password: { type: string }
+                new_password: { type: string }
+      responses:
+        '200':
+          description: Password changed
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER ORDERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/order_statuses:
+    get:
+      tags: [Manager Orders]
+      summary: Get all order status options
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Status list
+
+  /manager/active_order:
+    get:
+      tags: [Manager Orders]
+      summary: List active orders (filterable)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: workerID
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Active order list
+
+  /manager/order_details:
+    get:
+      tags: [Manager Orders]
+      summary: Get full details for a single order
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: orderID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Order details
+
+  /manager/assign_order:
+    post:
+      tags: [Manager Orders]
+      summary: Assign order to a worker
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, workerID]
+              properties:
+                orderID: { type: integer }
+                workerID: { type: string }
+      responses:
+        '200':
+          description: Order assigned
+
+  /manager/decline_order:
+    post:
+      tags: [Manager Orders]
+      summary: Decline/cancel an order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Order declined
+
+  /manager/mark_ordered:
+    post:
+      tags: [Manager Orders]
+      summary: Mark order as "ordered" (worker on the way)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Status updated
+
+  /manager/mark_processed:
+    post:
+      tags: [Manager Orders]
+      summary: Mark order as processed/completed
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Order marked processed
+
+  /manager/confirm_order:
+    post:
+      tags: [Manager Orders]
+      summary: Confirm order (manager-side approval)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Order confirmed
+
+  /manager/edit_order_details:
+    post:
+      tags: [Manager Orders]
+      summary: Edit order waste type details
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+                details:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_type: { type: string }
+                      weight: { type: number }
+      responses:
+        '200':
+          description: Details updated
+
+  /manager/edit_order_price:
+    post:
+      tags: [Manager Orders]
+      summary: Edit order price manually
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, price]
+              properties:
+                orderID: { type: integer }
+                price: { type: number }
+      responses:
+        '200':
+          description: Price updated
+
+  /manager/edit_order_info:
+    post:
+      tags: [Manager Orders]
+      summary: Edit order pickup date
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, pickup_date]
+              properties:
+                orderID: { type: integer }
+                pickup_date: { type: string, format: date }
+      responses:
+        '200':
+          description: Pickup date updated
+
+  /manager/issue_receipt_for_order:
+    post:
+      tags: [Manager Orders]
+      summary: Manually issue a receipt for a specific order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+      responses:
+        '200':
+          description: Receipt issued
+
+  /manager/set_new_order:
+    post:
+      tags: [Manager Orders]
+      summary: Create a new order on behalf of a customer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, addressID, waste_types, pickup_date]
+              properties:
+                customerID: { type: integer }
+                addressID: { type: integer }
+                waste_types: { type: array, items: { type: integer } }
+                pickup_date: { type: string, format: date }
+      responses:
+        '200':
+          description: Order created
+
+  /manager/re_assign_orders:
+    post:
+      tags: [Manager Orders]
+      summary: Re-run automatic order assignment for unassigned orders
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Re-assignment triggered
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER WORKERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/workers_list:
+    get:
+      tags: [Manager Workers]
+      summary: Get list of workers (searchable)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Worker list
+
+  /manager/worker_info:
+    get:
+      tags: [Manager Workers]
+      summary: Get full worker profile by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Worker profile with zones and B2B zones
+
+  /manager/add_worker:
+    post:
+      tags: [Manager Workers]
+      summary: Add a new worker account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, password]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                password: { type: string }
+                city: { type: string }
+                worker_type: { type: string }
+      responses:
+        '200':
+          description: Worker added
+
+  /manager/remove_worker:
+    delete:
+      tags: [Manager Workers]
+      summary: Remove a worker account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerID]
+              properties:
+                workerID: { type: string }
+      responses:
+        '200':
+          description: Worker removed
+
+  /manager/update_worker_info:
+    post:
+      tags: [Manager Workers]
+      summary: Update worker profile info
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                name: { type: string }
+                phone: { type: string }
+                city: { type: string }
+                worker_type: { type: string }
+                profile_image: { type: string }
+      responses:
+        '200':
+          description: Worker updated
+
+  /manager/change_worker_password:
+    post:
+      tags: [Manager Workers]
+      summary: Change worker password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, new_password]
+              properties:
+                id: { type: string }
+                new_password: { type: string }
+      responses:
+        '200':
+          description: Password changed
+
+  /manager/zones_list:
+    get:
+      tags: [Manager Workers]
+      summary: Get all address zones
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Zones list with city, zone, largeZone fields
+
+  /manager/add_zone:
+    post:
+      tags: [Manager Workers]
+      summary: Add a new address zone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zone, city]
+              properties:
+                zone: { type: string }
+                city: { type: string }
+                largeZone: { type: string }
+      responses:
+        '200':
+          description: Zone added
+
+  /manager/working_days_list:
+    get:
+      tags: [Manager Workers]
+      summary: Get list of working days
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Working days array
+
+  /manager/add_address_zone_to_worker:
+    post:
+      tags: [Manager Workers]
+      summary: Assign an address zone to a worker
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerID, zoneID, workingDayID]
+              properties:
+                workerID: { type: string }
+                zoneID: { type: integer }
+                workingDayID: { type: integer }
+      responses:
+        '200':
+          description: Zone assigned
+
+  /manager/remove_address_zone_from_worker:
+    delete:
+      tags: [Manager Workers]
+      summary: Remove an address zone from a worker
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerID, zoneID]
+              properties:
+                workerID: { type: string }
+                zoneID: { type: integer }
+      responses:
+        '200':
+          description: Zone removed
+
+  /manager/weights_collected:
+    get:
+      tags: [Manager Workers]
+      summary: Get waste weights collected by a worker
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: workerID
+          required: true
+          schema: { type: string }
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Collected weight breakdown
+
+  /manager/all_ratings:
+    get:
+      tags: [Manager Workers]
+      summary: Get all worker ratings
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: workerID
+          schema: { type: string }
+      responses:
+        '200':
+          description: Ratings list
+
+  /manager/mark_rating_as_supervised:
+    post:
+      tags: [Manager Workers]
+      summary: Mark a worker rating as reviewed/handled
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ratingID]
+              properties:
+                ratingID: { type: integer }
+      responses:
+        '200':
+          description: Rating marked
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER CUSTOMERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/customers_list:
+    get:
+      tags: [Manager Customers]
+      summary: Get all customers (searchable, paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Customer list
+
+  /manager/customer_info:
+    get:
+      tags: [Manager Customers]
+      summary: Get full customer profile
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: customerID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Customer profile
+
+  /manager/add_customer:
+    post:
+      tags: [Manager Customers]
+      summary: Add a new customer account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                packageID: { type: integer }
+                zoneID: { type: integer }
+      responses:
+        '200':
+          description: Customer added
+
+  /manager/remove_customer:
+    delete:
+      tags: [Manager Customers]
+      summary: Delete a customer account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID]
+              properties:
+                customerID: { type: integer }
+      responses:
+        '200':
+          description: Customer removed
+
+  /manager/update_customer_package:
+    post:
+      tags: [Manager Customers]
+      summary: Change a customer's payment package
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, packageID]
+              properties:
+                customerID: { type: integer }
+                packageID: { type: integer }
+      responses:
+        '200':
+          description: Package updated
+
+  /manager/edit_customer_phone:
+    post:
+      tags: [Manager Customers]
+      summary: Edit a customer's phone number
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customerID, phone]
+              properties:
+                customerID: { type: integer }
+                phone: { type: string }
+      responses:
+        '200':
+          description: Phone updated
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER STAFF
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/staff_list:
+    get:
+      tags: [Manager Staff]
+      summary: Get all staff members
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Staff list
+
+  /manager/staff_info:
+    get:
+      tags: [Manager Staff]
+      summary: Get a staff member's profile
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: staffID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Staff profile with permissions
+
+  /manager/add_staff:
+    post:
+      tags: [Manager Staff]
+      summary: Create a new staff invite token
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, city]
+              properties:
+                name: { type: string }
+                city: { type: string }
+                super: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Returns invite token for staff to complete signup
+
+  /manager/update_staff_info:
+    post:
+      tags: [Manager Staff]
+      summary: Update staff member info
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staffID]
+              properties:
+                staffID: { type: integer }
+                name: { type: string }
+                city: { type: string }
+      responses:
+        '200':
+          description: Staff updated
+
+  /manager/remove_staff:
+    delete:
+      tags: [Manager Staff]
+      summary: Delete a staff account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staffID]
+              properties:
+                staffID: { type: integer }
+      responses:
+        '200':
+          description: Staff removed
+
+  /manager/toggle_staff_permission:
+    post:
+      tags: [Manager Staff]
+      summary: Toggle a permission (READ/WRITE) for a staff member
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staffID, permission_type, level]
+              properties:
+                staffID: { type: integer }
+                permission_type:
+                  type: string
+                  enum: [Order, Worker, Customer, Staff, Receipt, Dashboard, Price, Warehouse, Package, Affiliate, B2BCompanies, B2BOrders, B2BPrices]
+                level:
+                  type: string
+                  enum: [read, write]
+      responses:
+        '200':
+          description: Permission toggled
+
+  /manager/permissions_list:
+    get:
+      tags: [Manager Staff]
+      summary: Get list of all available permissions
+      security: []
+      responses:
+        '200':
+          description: Permissions enum list
+
+  /manager/change_staff_password:
+    post:
+      tags: [Manager Staff]
+      summary: Change a staff member's password
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [staffID, new_password]
+              properties:
+                staffID: { type: integer }
+                new_password: { type: string }
+      responses:
+        '200':
+          description: Password changed
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER RECEIPTS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/receipts_list:
+    get:
+      tags: [Manager Receipts]
+      summary: Get all receipts (filterable, paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Receipt list
+
+  /manager/receipt_info:
+    get:
+      tags: [Manager Receipts]
+      summary: Get full receipt details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: receiptID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Receipt details
+
+  /manager/complete_receipt:
+    post:
+      tags: [Manager Receipts]
+      summary: Mark a receipt as completed/paid
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiptID]
+              properties:
+                receiptID: { type: integer }
+      responses:
+        '200':
+          description: Receipt completed
+
+  /manager/not_complete_receipt:
+    post:
+      tags: [Manager Receipts]
+      summary: Unmark a receipt as completed (revert to pending)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiptID]
+              properties:
+                receiptID: { type: integer }
+      responses:
+        '200':
+          description: Receipt reverted
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER PRICES & WASTE TYPES
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/waste_types:
+    get:
+      tags: [Manager Prices]
+      summary: Get waste types (filterable by city)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Waste type list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: integer }
+                    name: { type: string }
+                    icon: { type: string }
+                    city: { type: string }
+                    enabled: { type: boolean }
+                    is_b2b: { type: boolean }
+
+  /manager/add_waste_type:
+    post:
+      tags: [Manager Prices]
+      summary: Add a new waste type
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, icon, city]
+              properties:
+                name: { type: string, example: "Plastic" }
+                icon: { type: string, example: "mdi:recycle" }
+                city: { type: string }
+                b2b: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Waste type created
+        '406':
+          description: Waste type already exists for this city
+
+  /manager/update_waste_type:
+    post:
+      tags: [Manager Prices]
+      summary: Update an existing waste type
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wasteID]
+              properties:
+                wasteID: { type: integer }
+                name: { type: string }
+                icon: { type: string }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Waste type updated
+
+  /manager/waste_prices:
+    get:
+      tags: [Manager Prices]
+      summary: Get all waste prices
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Price list
+
+  /manager/edit_waste_prices:
+    post:
+      tags: [Manager Prices]
+      summary: Edit waste prices (bulk update)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prices:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_typeID: { type: integer }
+                      price_per_kg: { type: number }
+                      payment_methodID: { type: integer }
+      responses:
+        '200':
+          description: Prices updated
+
+  /manager/add_waste_prices_auto:
+    post:
+      tags: [Manager Prices]
+      summary: Auto-create price entries for all waste types missing a price
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Missing price entries created
+
+  /manager/payment_methods:
+    get:
+      tags: [Manager Prices]
+      summary: Get all payment methods
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Payment method list
+
+  /manager/edit_payment_method:
+    post:
+      tags: [Manager Prices]
+      summary: Edit a payment method raise/commission
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [methodID, raise]
+              properties:
+                methodID: { type: integer }
+                raise: { type: number }
+      responses:
+        '200':
+          description: Payment method updated
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER ANALYTICS & WASTE BAGS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/analysis_numbers:
+    get:
+      tags: [Manager Analytics]
+      summary: Get dashboard KPI numbers
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: year
+          schema: { type: integer }
+        - in: query
+          name: month
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Aggregate KPIs
+
+  /manager/orders_count_by_status:
+    get:
+      tags: [Manager Analytics]
+      summary: Order count grouped by status
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Counts per status
+
+  /manager/orders_count_by_zone:
+    get:
+      tags: [Manager Analytics]
+      summary: Order count grouped by zone
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Counts per zone
+
+  /manager/orders_count_by_payment_method:
+    get:
+      tags: [Manager Analytics]
+      summary: Order count grouped by payment method
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Counts per payment method
+
+  /manager/customers_count_by_payment_method:
+    get:
+      tags: [Manager Analytics]
+      summary: Customer count grouped by payment method
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Counts per payment method
+
+  /manager/waste_types_collected:
+    get:
+      tags: [Manager Analytics]
+      summary: Monthly waste weight collected per type (12 months)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: 12-month weight totals per waste type
+
+  /manager/available_years:
+    get:
+      tags: [Manager Analytics]
+      summary: Get years for which order data exists
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Year array
+
+  /manager/worker_bag:
+    get:
+      tags: [Manager WasteBags]
+      summary: Get waste bag(s) for a worker on a given date
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: workerID
+          required: true
+          schema: { type: string }
+        - in: query
+          name: date
+          schema: { type: string, format: date, description: "Defaults to today" }
+      responses:
+        '200':
+          description: Bag or list of bags for the worker on that date
+
+  /manager/todays_bags:
+    get:
+      tags: [Manager WasteBags]
+      summary: Get all bags created today (all workers)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: Today's bags list
+
+  /manager/bag/warehouse_receive:
+    post:
+      tags: [Manager WasteBags]
+      summary: Record warehouse received weights for a bag (manager-side alias)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID, warehouseID, received_items]
+              properties:
+                bagID: { type: integer }
+                warehouseID: { type: integer }
+                received_items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_type: { type: string }
+                      warehouse_received_weight: { type: number }
+      responses:
+        '200':
+          description: Weights recorded, bag moves to CONFIRMING
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MANAGER AFFILIATE & EXPORT
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/affiliate_workers_list:
+    get:
+      tags: [Manager Affiliate]
+      summary: Get list of affiliate worker applications
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Affiliate applications list
+
+  /manager/affiliate_form_details:
+    get:
+      tags: [Manager Affiliate]
+      summary: Get a single affiliate form details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: formID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Form details
+
+  /manager/edit_affiliate_form_status:
+    post:
+      tags: [Manager Affiliate]
+      summary: Accept or reject an affiliate form
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [formID, status]
+              properties:
+                formID: { type: integer }
+                status: { type: string, enum: [accepted, rejected, pending] }
+      responses:
+        '200':
+          description: Status updated
+
+  /manager/delete_affiliate_form:
+    delete:
+      tags: [Manager Affiliate]
+      summary: Delete an affiliate form
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [formID]
+              properties:
+                formID: { type: integer }
+      responses:
+        '200':
+          description: Form deleted
+
+  /manager/export_orders:
+    get:
+      tags: [Manager Export]
+      summary: Export orders as CSV
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /manager/export_customers:
+    get:
+      tags: [Manager Export]
+      summary: Export customers as CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema: { type: string }
+
+  /manager/export_workers:
+    get:
+      tags: [Manager Export]
+      summary: Export workers as CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema: { type: string }
+
+  /manager/export_receipts:
+    get:
+      tags: [Manager Export]
+      summary: Export receipts as CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV file download
+          content:
+            text/csv:
+              schema: { type: string }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WORKER
+# ─────────────────────────────────────────────────────────────────────────────
+  /worker/complete_signup:
+    post:
+      tags: [Worker]
+      summary: Complete worker signup (first-time registration)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone, password, token]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                password: { type: string }
+                token: { type: string, description: "Invite token from add_worker" }
+      responses:
+        '200':
+          description: Signup complete, returns JWT
+
+  /worker/assigned_orders:
+    get:
+      tags: [Worker]
+      summary: Get orders assigned to the worker
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: date
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: List of assigned orders
+
+  /worker/order_details:
+    get:
+      tags: [Worker]
+      summary: Get full order details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: orderID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Order details
+
+  /worker/mark_pickedup:
+    post:
+      tags: [Worker]
+      summary: Mark an order as picked up
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, details]
+              properties:
+                orderID: { type: integer }
+                details:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_type: { type: string }
+                      weight: { type: number }
+      responses:
+        '200':
+          description: Order marked as picked up
+
+  /worker/mark_declined:
+    post:
+      tags: [Worker]
+      summary: Mark an order as declined by worker
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Order declined
+
+  /worker/bag/active:
+    get:
+      tags: [Worker]
+      summary: Get the worker's current active waste bag
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active bag or null
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/WasteBagSummary'
+                  - type: object
+                    nullable: true
+
+  /worker/bag/history:
+    get:
+      tags: [Worker]
+      summary: Get worker's bag history (paginated, filterable by status)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/WasteBagStatus'
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Paginated bag history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WasteBagSummary'
+
+  /worker/assigned_warehouses:
+    get:
+      tags: [Worker]
+      summary: Get warehouses the worker is assigned to
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Warehouse list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WarehouseSummary'
+
+  /worker/bag/initiate_handover:
+    post:
+      tags: [Worker]
+      summary: Initiate bag handover to a warehouse
+      description: Bag must be in **HOLDING** status. Sets status to **PENDING_HANDOVER**.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID, warehouseID]
+              properties:
+                bagID: { type: integer }
+                warehouseID: { type: integer }
+      responses:
+        '200':
+          description: Bag status set to PENDING_HANDOVER
+        '404':
+          description: Bag or warehouse not found
+        '406':
+          description: Bag is not in HOLDING status
+
+  /worker/bag/confirm_handover:
+    post:
+      tags: [Worker]
+      summary: Confirm warehouse weights and complete handover
+      description: Bag must be in **CONFIRMING** status. Sets status to **HANDED_OVER**.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID]
+              properties:
+                bagID: { type: integer }
+      responses:
+        '200':
+          description: Bag status set to HANDED_OVER
+        '406':
+          description: Bag is not in CONFIRMING status
+
+  /worker/bag/refuse_handover:
+    post:
+      tags: [Worker]
+      summary: Refuse warehouse weights — creates ticket, resets bag to HOLDING
+      description: |
+        Bag must be in **CONFIRMING** status.
+        - Creates a **HandoverTicket** with reason `WORKER_REFUSED`
+        - Clears `warehouse_received_weight` on all bag items
+        - Resets bag to **HOLDING** so worker can try another warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID]
+              properties:
+                bagID: { type: integer }
+                notes: { type: string, example: "Weights don't match" }
+      responses:
+        '200':
+          description: Ticket created, bag reset to HOLDING
+        '406':
+          description: Bag is not in CONFIRMING status
+
+  /worker/calculate_price:
+    post:
+      tags: [Worker]
+      summary: Calculate payout for given waste weights
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                orderID: { type: integer }
+                details:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_type: { type: string }
+                      weight: { type: number }
+      responses:
+        '200':
+          description: Calculated price
+
+  /worker/orders_history:
+    get:
+      tags: [Worker]
+      summary: Get worker's completed order history
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: from
+          schema: { type: string, format: date }
+        - in: query
+          name: to
+          schema: { type: string, format: date }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Paginated history
+
+  /worker/waste_types:
+    get:
+      tags: [Worker]
+      summary: Get available waste types for the worker's city
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Waste type list
+
+  /worker/submit_affiliate_form:
+    post:
+      tags: [Worker]
+      summary: Submit affiliate/recruitment application form
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name: { type: string }
+                phone: { type: string }
+                city: { type: string }
+                notes: { type: string }
+      responses:
+        '200':
+          description: Form submitted
+
+  /worker/delete_account:
+    delete:
+      tags: [Worker]
+      summary: Delete worker account
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Account deleted
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B2B COMPANIES & BRANCHES
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/b2b/companies_list:
+    get:
+      tags: [B2B Companies]
+      summary: Get all B2B companies
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Company list
+
+  /manager/b2b/company_info:
+    get:
+      tags: [B2B Companies]
+      summary: Get B2B company details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: companyID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Company info with branches
+
+  /manager/b2b/add_company:
+    post:
+      tags: [B2B Companies]
+      summary: Add a new B2B company
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, city]
+              properties:
+                name: { type: string }
+                city: { type: string }
+                phone: { type: string }
+                email: { type: string }
+                contact_person: { type: string }
+      responses:
+        '200':
+          description: Company created
+
+  /manager/b2b/update_company:
+    post:
+      tags: [B2B Companies]
+      summary: Update B2B company info
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyID]
+              properties:
+                companyID: { type: integer }
+                name: { type: string }
+                phone: { type: string }
+                email: { type: string }
+      responses:
+        '200':
+          description: Company updated
+
+  /manager/b2b/remove_company:
+    delete:
+      tags: [B2B Companies]
+      summary: Remove a B2B company
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyID]
+              properties:
+                companyID: { type: integer }
+      responses:
+        '200':
+          description: Company removed
+
+  /manager/b2b/branches_list:
+    get:
+      tags: [B2B Companies]
+      summary: Get branches for a company
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: companyID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Branch list
+
+  /manager/b2b/add_branch:
+    post:
+      tags: [B2B Companies]
+      summary: Add a branch to a company
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyID, name, zoneID]
+              properties:
+                companyID: { type: integer }
+                name: { type: string }
+                zoneID: { type: integer }
+                phone: { type: string }
+      responses:
+        '200':
+          description: Branch added
+
+  /manager/b2b/update_branch:
+    post:
+      tags: [B2B Companies]
+      summary: Update branch info
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branchID]
+              properties:
+                branchID: { type: integer }
+                name: { type: string }
+                phone: { type: string }
+      responses:
+        '200':
+          description: Branch updated
+
+  /manager/b2b/remove_branch:
+    delete:
+      tags: [B2B Companies]
+      summary: Remove a branch
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branchID]
+              properties:
+                branchID: { type: integer }
+      responses:
+        '200':
+          description: Branch removed
+
+  /manager/b2b/zones_list:
+    get:
+      tags: [B2B Zones]
+      summary: Get B2B zones
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: B2B zones list
+
+  /manager/b2b/add_zone:
+    post:
+      tags: [B2B Zones]
+      summary: Add a B2B zone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zone, city]
+              properties:
+                zone: { type: string }
+                city: { type: string }
+      responses:
+        '200':
+          description: Zone added
+
+  /manager/b2b/update_zone:
+    post:
+      tags: [B2B Zones]
+      summary: Update a B2B zone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zoneID]
+              properties:
+                zoneID: { type: integer }
+                zone: { type: string }
+      responses:
+        '200':
+          description: Zone updated
+
+  /manager/b2b/remove_zone:
+    delete:
+      tags: [B2B Zones]
+      summary: Remove a B2B zone
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zoneID]
+              properties:
+                zoneID: { type: integer }
+      responses:
+        '200':
+          description: Zone removed
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B2B ORDERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/b2b/orders_list:
+    get:
+      tags: [B2B Orders]
+      summary: Get B2B orders (filterable, paginated)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: companyID
+          schema: { type: integer }
+        - in: query
+          name: branchID
+          schema: { type: integer }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: B2B order list
+
+  /manager/b2b/order_details:
+    get:
+      tags: [B2B Orders]
+      summary: Get B2B order details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: orderID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Order details
+
+  /manager/b2b/create_branch_order:
+    post:
+      tags: [B2B Orders]
+      summary: Create a B2B pickup order for a branch
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branchID, pickup_date]
+              properties:
+                branchID: { type: integer }
+                pickup_date: { type: string, format: date }
+                notes: { type: string }
+                waste_types: { type: array, items: { type: integer } }
+      responses:
+        '200':
+          description: B2B order created
+
+  /manager/b2b/update_order_status:
+    post:
+      tags: [B2B Orders]
+      summary: Update B2B order status
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, status]
+              properties:
+                orderID: { type: integer }
+                status: { type: string }
+      responses:
+        '200':
+          description: Status updated
+
+  /manager/b2b/assign_worker:
+    post:
+      tags: [B2B Orders]
+      summary: Assign a worker to a B2B order
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID, workerID]
+              properties:
+                orderID: { type: integer }
+                workerID: { type: string }
+      responses:
+        '200':
+          description: Worker assigned
+
+  /manager/b2b/edit_order_details:
+    post:
+      tags: [B2B Orders]
+      summary: Edit B2B order waste details (weights)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderID]
+              properties:
+                orderID: { type: integer }
+                details:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_type: { type: string }
+                      weight: { type: number }
+      responses:
+        '200':
+          description: Details updated
+
+  /manager/b2b/export_orders:
+    get:
+      tags: [B2B Orders]
+      summary: Export B2B orders as CSV
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: CSV download
+          content:
+            text/csv:
+              schema: { type: string }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B2B RECEIPTS
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/b2b/receipts_list:
+    get:
+      tags: [B2B Receipts]
+      summary: Get B2B receipts (filterable)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: companyID
+          schema: { type: integer }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+      responses:
+        '200':
+          description: Receipt list
+
+  /manager/b2b/receipt_details:
+    get:
+      tags: [B2B Receipts]
+      summary: Get a B2B receipt details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: receiptID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Receipt details
+
+  /manager/b2b/create_receipt:
+    post:
+      tags: [B2B Receipts]
+      summary: Create a B2B receipt (payment record)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [companyID]
+              properties:
+                companyID: { type: integer }
+                order_ids: { type: array, items: { type: integer } }
+      responses:
+        '200':
+          description: Receipt created
+
+  /manager/b2b/complete_receipt:
+    post:
+      tags: [B2B Receipts]
+      summary: Mark B2B receipt as completed/paid
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiptID]
+              properties:
+                receiptID: { type: integer }
+      responses:
+        '200':
+          description: Receipt completed
+
+  /manager/b2b/not_complete_receipt:
+    post:
+      tags: [B2B Receipts]
+      summary: Revert B2B receipt to pending
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [receiptID]
+              properties:
+                receiptID: { type: integer }
+      responses:
+        '200':
+          description: Receipt reverted
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B2B PRICES
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/b2b/waste_prices:
+    get:
+      tags: [B2B Prices]
+      summary: Get B2B waste prices
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: B2B price list
+
+  /manager/b2b/edit_waste_prices:
+    post:
+      tags: [B2B Prices]
+      summary: Edit B2B waste prices (bulk)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                prices:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      waste_typeID: { type: integer }
+                      price_per_kg: { type: number }
+      responses:
+        '200':
+          description: Prices updated
+
+  /manager/b2b/add_waste_prices_auto:
+    post:
+      tags: [B2B Prices]
+      summary: Auto-add missing B2B price entries for all waste types
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Missing entries created
+
+  /manager/b2b/add_waste_price_single:
+    post:
+      tags: [B2B Prices]
+      summary: Add a single B2B price entry
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [waste_typeID, price_per_kg]
+              properties:
+                waste_typeID: { type: integer }
+                price_per_kg: { type: number }
+      responses:
+        '200':
+          description: Price entry added
+
+  /manager/b2b/missing_waste_types:
+    get:
+      tags: [B2B Prices]
+      summary: Get waste types that don't have a B2B price yet
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of waste types missing B2B prices
+
+  /manager/b2b/company_analytics:
+    get:
+      tags: [B2B Companies]
+      summary: Get analytics for a specific B2B company
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: companyID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Company analytics
+
+  /manager/b2b/insights:
+    get:
+      tags: [B2B Companies]
+      summary: Get B2B-wide insights and KPIs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: B2B insights
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WAREHOUSE
+# ─────────────────────────────────────────────────────────────────────────────
+  /manager/warehouse/list:
+    get:
+      tags: [Warehouse]
+      summary: Get all warehouses
+      description: Optionally filter by workerID to get only warehouses a specific worker is assigned to.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: workerID
+          schema: { type: string, description: "Filter warehouses assigned to this worker" }
+      responses:
+        '200':
+          description: Warehouse list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WarehouseSummary'
+
+  /manager/warehouse/details:
+    get:
+      tags: [Warehouse]
+      summary: Get full warehouse details
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: warehouseID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Warehouse with workers, prices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseDetail'
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/add:
+    post:
+      tags: [Warehouse]
+      summary: Add a new warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: "Cairo Warehouse" }
+                image: { type: string, nullable: true, description: "Filename from /upload" }
+                location: { type: string, nullable: true }
+                location_link: { type: string, nullable: true, example: "https://maps.google.com/..." }
+                zone: { type: string, nullable: true }
+                city: { type: string, nullable: true, example: "Cairo" }
+                nearby_mark: { type: string, nullable: true }
+                contact_person: { type: string, nullable: true }
+                contact_phone: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Warehouse created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseDetail'
+        '404':
+          description: Missing required field (name)
+
+  /manager/warehouse/update:
+    post:
+      tags: [Warehouse]
+      summary: Update warehouse fields
+      description: All fields except warehouseID are optional — only provided fields are updated.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseID]
+              properties:
+                warehouseID: { type: integer }
+                name: { type: string }
+                image: { type: string }
+                location: { type: string }
+                location_link: { type: string }
+                zone: { type: string }
+                city: { type: string }
+                nearby_mark: { type: string }
+                contact_person: { type: string }
+                contact_phone: { type: string }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: Warehouse updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WarehouseDetail'
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/set_price:
+    post:
+      tags: [Warehouse]
+      summary: Set (upsert) price per kg for a waste type in this warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseID, waste_type, price_per_kg]
+              properties:
+                warehouseID: { type: integer }
+                waste_type: { type: string, example: "Plastic" }
+                price_per_kg: { type: number, example: 7.5 }
+      responses:
+        '200':
+          description: Price upserted
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/initialize_prices:
+    post:
+      tags: [Warehouse]
+      summary: Initialize all missing waste type prices for this warehouse's city
+      description: |
+        Looks up all WasteTypes for the warehouse's city and creates price entries
+        (price_per_kg = 0) for any that don't already exist.
+        Returns `{ added: N }` — the number of new entries created.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseID]
+              properties:
+                warehouseID: { type: integer }
+      responses:
+        '200':
+          description: Prices initialized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  added: { type: integer, example: 4 }
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/assign_worker:
+    post:
+      tags: [Warehouse]
+      summary: Assign a worker to a warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseID, workerID]
+              properties:
+                warehouseID: { type: integer }
+                workerID: { type: string }
+      responses:
+        '200':
+          description: Worker assigned
+        '406':
+          description: Worker already assigned to this warehouse
+        '404':
+          description: Warehouse or worker not found
+
+  /manager/warehouse/remove_worker:
+    delete:
+      tags: [Warehouse]
+      summary: Remove a worker from a warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [warehouseID, workerID]
+              properties:
+                warehouseID: { type: integer }
+                workerID: { type: string }
+      responses:
+        '200':
+          description: Worker removed
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/pending_bags:
+    get:
+      tags: [Warehouse]
+      summary: Get bags in PENDING_HANDOVER status for this warehouse
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: warehouseID
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: List of pending bags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WasteBagSummary'
+        '404':
+          description: Warehouse not found
+
+  /manager/warehouse/record_weights:
+    post:
+      tags: [Warehouse]
+      summary: Record received weights per waste type → bag moves to CONFIRMING
+      description: |
+        - Updates `warehouse_received_weight` on each bag item
+        - Computes `total_price = sum(weight × price_per_kg)` using this warehouse's price list
+        - Sets `bag.warehouse` and `bag.status = CONFIRMING`
+        - Worker must then confirm or refuse the weights
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID, warehouseID, received_items]
+              properties:
+                bagID: { type: integer }
+                warehouseID: { type: integer }
+                received_items:
+                  type: array
+                  items:
+                    type: object
+                    required: [waste_type, warehouse_received_weight]
+                    properties:
+                      waste_type: { type: string, example: "Plastic" }
+                      warehouse_received_weight: { type: number, example: 4.2 }
+      responses:
+        '200':
+          description: Weights recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bag_id: { type: integer }
+                  status: { $ref: '#/components/schemas/WasteBagStatus' }
+                  total_price: { type: number, example: 52.5 }
+        '404':
+          description: Bag or warehouse not found
+        '406':
+          description: Bag is not in PENDING_HANDOVER status
+
+  /manager/warehouse/reject_bag:
+    post:
+      tags: [Warehouse]
+      summary: Reject a bag at gate — creates ticket, resets bag to HOLDING
+      description: |
+        Bag must be in **PENDING_HANDOVER** status.
+        - Creates a **HandoverTicket** with reason `WAREHOUSE_REJECTED`
+        - Resets `bag.status = HOLDING` and `bag.warehouse = null`
+        - Worker can then try a different warehouse
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bagID, warehouseID]
+              properties:
+                bagID: { type: integer }
+                warehouseID: { type: integer }
+                notes: { type: string, example: "Contaminated waste" }
+      responses:
+        '200':
+          description: Bag rejected, ticket created
+        '404':
+          description: Bag or warehouse not found
+        '406':
+          description: Bag is not in PENDING_HANDOVER status
+
+  /manager/warehouse/tickets:
+    get:
+      tags: [Warehouse]
+      summary: Get handover tickets (filterable)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: warehouseID
+          schema: { type: integer }
+        - in: query
+          name: bagID
+          schema: { type: integer }
+        - in: query
+          name: reason
+          schema:
+            $ref: '#/components/schemas/TicketReason'
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HandoverTicket'

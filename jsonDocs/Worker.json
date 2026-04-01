@@ -1379,6 +1379,85 @@
             "bag_orders": []
         },
         "responseDescription":"Returns the updated WasteBag with all items reflecting the newly saved warehouse_received_weight values and the computed difference per item. Returns 404 if the bag is not found."
+    },
+    {
+        "endpoint":"/worker/assigned_warehouses",
+        "section":"worker",
+        "method":"GET",
+        "description":"Get all warehouses assigned to the authenticated worker",
+        "parameters":[],
+        "responseExample":[
+            {
+                "id":1,
+                "name":"مخزن الإسكندرية",
+                "image":"1726067411324.jpg",
+                "location":"شارع السيوف، الإسكندرية",
+                "location_link":"https://maps.google.com/?q=...",
+                "zone":"شرق الإسكندرية",
+                "nearby_mark":"بجوار محطة المترو",
+                "contact_person":"أحمد محمد",
+                "contact_phone":"01012345678",
+                "active":true
+            }
+        ],
+        "responseDescription":"Returns an array of warehouses the worker is assigned to. Each warehouse includes location info and contact details."
+    },
+    {
+        "endpoint":"/worker/bag/initiate_handover",
+        "section":"worker",
+        "method":"POST",
+        "description":"Worker initiates handover of their active bag to a specific warehouse. Bag status changes from HOLDING to PENDING_HANDOVER.",
+        "parameters":[
+            {
+                "paramName":"bagID",
+                "paramType":"Integer",
+                "paramDescription":"The ID of the bag to hand over (must be in HOLDING status and belong to the worker)"
+            },
+            {
+                "paramName":"warehouseID",
+                "paramType":"Integer",
+                "paramDescription":"The ID of the warehouse to deliver to"
+            }
+        ],
+        "requestExample":{"bagID":5,"warehouseID":1},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success. Returns 406 if bag is not in HOLDING status. Returns 404 if bag or warehouse is not found."
+    },
+    {
+        "endpoint":"/worker/bag/confirm_handover",
+        "section":"worker",
+        "method":"POST",
+        "description":"Worker confirms the warehouse weights after the warehouse has recorded them. Bag status changes from CONFIRMING to HANDED_OVER.",
+        "parameters":[
+            {
+                "paramName":"bagID",
+                "paramType":"Integer",
+                "paramDescription":"The ID of the bag to confirm (must be in CONFIRMING status and belong to the worker)"
+            }
+        ],
+        "requestExample":{"bagID":5},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success. Returns 406 if bag is not in CONFIRMING status. Returns 404 if bag is not found."
+    },
+    {
+        "endpoint":"/worker/bag/refuse_handover",
+        "section":"worker",
+        "method":"POST",
+        "description":"Worker refuses the warehouse weights. A HandoverTicket (reason: WORKER_REFUSED) is created. Bag status reverts to HOLDING and can be taken to a different warehouse.",
+        "parameters":[
+            {
+                "paramName":"bagID",
+                "paramType":"Integer",
+                "paramDescription":"The ID of the bag to refuse (must be in CONFIRMING status and belong to the worker)"
+            },
+            {
+                "paramName":"notes",
+                "paramType":"String (text)",
+                "paramDescription":"Optional. Reason for refusal"
+            }
+        ],
+        "requestExample":{"bagID":5,"notes":"الأوزان غير صحيحة"},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success. A HandoverTicket is created linking the bag to the warehouse with reason WORKER_REFUSED. Bag warehouse_received_weight values are reset to null. Returns 406 if bag is not in CONFIRMING status."
     }
-
 ]

@@ -979,6 +979,170 @@
             }
         },
         "responseDescription": "Returns import results for both cities. The function automatically imports from: Damnhour sheet (دمهور) and Alexandria sheet (الإسكندرية). Each city result includes success status, imported count, updated count, and errors count. This is the same as the automatic cron job but can be triggered manually from the dashboard."
+    },
+    {
+        "endpoint":"/manager/warehouse/list",
+        "section":"warehouse",
+        "method":"GET",
+        "description":"Get all warehouses. Optionally filter by workerID to get warehouses assigned to a specific worker.",
+        "parameters":[
+            {"paramName":"workerID","paramType":"String (255)","paramDescription":"Optional. Filter warehouses by assigned worker ID"}
+        ],
+        "responseExample":[
+            {"id":1,"name":"مخزن الإسكندرية","image":"1234.jpg","location":"شارع السيوف","location_link":"https://maps.google.com","zone":"شرق","nearby_mark":"بجوار المترو","contact_person":"أحمد","contact_phone":"01012345678","active":true,"created_at":"2026-03-31T10:00:00Z","workers_count":3,"waste_prices":[{"id":1,"waste_type":"بلاستيك","price_per_kg":2.5}]}
+        ],
+        "responseDescription":"Returns an array of warehouses with worker count (workers_count) and price list (waste_prices). If workerID is provided, returns only warehouses assigned to that worker."
+    },
+    {
+        "endpoint":"/manager/warehouse/details",
+        "section":"warehouse",
+        "method":"GET",
+        "description":"Get full details of a warehouse including full worker list and price list.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The ID of the warehouse"}
+        ],
+        "responseExample":{
+            "id":1,"name":"مخزن الإسكندرية","image":"1234.jpg","location":"شارع السيوف","location_link":"https://maps.google.com","zone":"شرق","nearby_mark":"بجوار المترو","contact_person":"أحمد","contact_phone":"01012345678","active":true,"created_at":"2026-03-31T10:00:00Z",
+            "waste_prices":[{"id":1,"waste_type":"بلاستيك","price_per_kg":2.5}],
+            "workers":[{"id":"worker123","name":"محمد علي","profile_image":"pic.jpg","city":"الإسكندرية"}]
+        },
+        "responseDescription":"Returns full warehouse object including all assigned workers and all configured waste prices."
+    },
+    {
+        "endpoint":"/manager/warehouse/add",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Create a new warehouse. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"name","paramType":"String (255)","paramDescription":"Warehouse name (required)"},
+            {"paramName":"image","paramType":"String (500)","paramDescription":"Optional. Image filename from /uploadProfilePic"},
+            {"paramName":"location","paramType":"String (text)","paramDescription":"Optional. Text description of location"},
+            {"paramName":"location_link","paramType":"String (text)","paramDescription":"Optional. Google Maps URL"},
+            {"paramName":"zone","paramType":"String (255)","paramDescription":"Optional. Zone/area name"},
+            {"paramName":"nearby_mark","paramType":"String (255)","paramDescription":"Optional. Nearby landmark"},
+            {"paramName":"contact_person","paramType":"String (255)","paramDescription":"Optional. Contact person name"},
+            {"paramName":"contact_phone","paramType":"String (255)","paramDescription":"Optional. Contact phone number"}
+        ],
+        "requestExample":{"name":"مخزن الإسكندرية","zone":"شرق الإسكندرية","contact_person":"أحمد","contact_phone":"01012345678"},
+        "responseExample":{"id":1,"name":"مخزن الإسكندرية","active":true,"waste_prices":[],"workers":[]},
+        "responseDescription":"Returns the created warehouse object. Initially has no workers or prices."
+    },
+    {
+        "endpoint":"/manager/warehouse/update",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Update warehouse fields. Only provided fields are updated. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse ID to update (required)"},
+            {"paramName":"name","paramType":"String (255)","paramDescription":"Optional. New name"},
+            {"paramName":"image","paramType":"String (500)","paramDescription":"Optional. New image filename"},
+            {"paramName":"location","paramType":"String (text)","paramDescription":"Optional. New location description"},
+            {"paramName":"location_link","paramType":"String (text)","paramDescription":"Optional. New Google Maps URL"},
+            {"paramName":"zone","paramType":"String (255)","paramDescription":"Optional. New zone"},
+            {"paramName":"nearby_mark","paramType":"String (255)","paramDescription":"Optional. New landmark"},
+            {"paramName":"contact_person","paramType":"String (255)","paramDescription":"Optional. New contact person"},
+            {"paramName":"contact_phone","paramType":"String (255)","paramDescription":"Optional. New contact phone"},
+            {"paramName":"active","paramType":"Boolean","paramDescription":"Optional. Set active/inactive status"}
+        ],
+        "requestExample":{"warehouseID":1,"active":false},
+        "responseExample":{"id":1,"name":"مخزن الإسكندرية","active":false},
+        "responseDescription":"Returns the updated warehouse object."
+    },
+    {
+        "endpoint":"/manager/warehouse/set_price",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Create or update the price per kg for a specific waste type at a warehouse. If a price for that waste_type already exists it is updated, otherwise created. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse ID"},
+            {"paramName":"waste_type","paramType":"String","paramDescription":"The waste type name (must match WasteBagItem waste_type strings)"},
+            {"paramName":"price_per_kg","paramType":"Float","paramDescription":"Price per kilogram in EGP"}
+        ],
+        "requestExample":{"warehouseID":1,"waste_type":"بلاستيك","price_per_kg":2.5},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success."
+    },
+    {
+        "endpoint":"/manager/warehouse/assign_worker",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Assign a worker to a warehouse. The worker will see this warehouse in their assigned_warehouses list and can initiate handovers to it. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse ID"},
+            {"paramName":"workerID","paramType":"String (255)","paramDescription":"The worker's ID"}
+        ],
+        "requestExample":{"warehouseID":1,"workerID":"worker123"},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success. Returns 406 if worker is already assigned to this warehouse."
+    },
+    {
+        "endpoint":"/manager/warehouse/remove_worker",
+        "section":"warehouse",
+        "method":"DELETE",
+        "description":"Remove a worker's assignment from a warehouse. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse ID"},
+            {"paramName":"workerID","paramType":"String (255)","paramDescription":"The worker's ID"}
+        ],
+        "requestExample":{"warehouseID":1,"workerID":"worker123"},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done' on success."
+    },
+    {
+        "endpoint":"/manager/warehouse/pending_bags",
+        "section":"warehouse",
+        "method":"GET",
+        "description":"Get all WasteBags currently in PENDING_HANDOVER status that are directed to a specific warehouse. These are bags waiting for the warehouse to record weights.",
+        "parameters":[
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse ID to check pending bags for"}
+        ],
+        "responseExample":[
+            {"id":5,"bag_date":"2026-03-31","status":"PENDING_HANDOVER","orders_count":3,"created_at":"2026-03-31T08:00:00Z","worker":{"id":"worker123","name":"محمد علي","profile_image":"pic.jpg"},"bag_items":[{"waste_type":"بلاستيك","collected_weight":12.5}],"total_collected":12.5}
+        ],
+        "responseDescription":"Returns an array of WasteBag objects in PENDING_HANDOVER status assigned to this warehouse, including the worker info and bag items summary."
+    },
+    {
+        "endpoint":"/manager/warehouse/record_weights",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Warehouse records the received weights for each waste type in a bag. Updates warehouse_received_weight on each WasteBagItem, computes total_price using warehouse price list, and changes bag status to CONFIRMING. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"bagID","paramType":"Integer","paramDescription":"The bag ID (must be in PENDING_HANDOVER status)"},
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse recording the weights"},
+            {"paramName":"received_items","paramType":"Array","paramDescription":"Array of {waste_type: String, warehouse_received_weight: Float} — one entry per waste type"}
+        ],
+        "requestExample":{"bagID":5,"warehouseID":1,"received_items":[{"waste_type":"بلاستيك","warehouse_received_weight":11.0},{"waste_type":"معادن","warehouse_received_weight":6.5}]},
+        "responseExample":{"bag_id":5,"status":"CONFIRMING","total_price":43.75},
+        "responseDescription":"Returns the bag ID, new status (CONFIRMING), and computed total_price. The price is computed as sum(warehouse_received_weight × price_per_kg) for each waste type using the warehouse's configured prices."
+    },
+    {
+        "endpoint":"/manager/warehouse/reject_bag",
+        "section":"warehouse",
+        "method":"POST",
+        "description":"Warehouse rejects a bag before weighing (e.g., quality gate rejection). Creates a HandoverTicket with reason WAREHOUSE_REJECTED and resets bag to HOLDING status. Requires WAREHOUSE write permission.",
+        "parameters":[
+            {"paramName":"bagID","paramType":"Integer","paramDescription":"The bag ID (must be in PENDING_HANDOVER status)"},
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"The warehouse rejecting the bag"},
+            {"paramName":"notes","paramType":"String (text)","paramDescription":"Optional. Reason for rejection"}
+        ],
+        "requestExample":{"bagID":5,"warehouseID":1,"notes":"جودة غير مقبولة"},
+        "responseExample":"Done",
+        "responseDescription":"Returns 'Done'. A HandoverTicket is created. Bag status reverts to HOLDING and warehouse is set to null, allowing the worker to try another warehouse."
+    },
+    {
+        "endpoint":"/manager/warehouse/tickets",
+        "section":"warehouse",
+        "method":"GET",
+        "description":"Get all HandoverTickets. Optionally filter by bagID, warehouseID, or reason. Tickets are ordered by newest first.",
+        "parameters":[
+            {"paramName":"bagID","paramType":"Integer","paramDescription":"Optional. Filter by specific bag ID"},
+            {"paramName":"warehouseID","paramType":"Integer","paramDescription":"Optional. Filter by specific warehouse ID"},
+            {"paramName":"reason","paramType":"String (enum)","paramDescription":"Optional. Filter by reason: 'WORKER_REFUSED' or 'WAREHOUSE_REJECTED'"}
+        ],
+        "responseExample":[
+            {"id":1,"reason":"WORKER_REFUSED","notes":"الوزن غير صحيح","created_at":"2026-03-31T10:30:00Z","bag":{"id":5,"bag_date":"2026-03-31","status":"HOLDING","worker":{"id":"worker123","name":"محمد علي"}},"warehouse":{"id":1,"name":"مخزن الإسكندرية"}}
+        ],
+        "responseDescription":"Returns an array of HandoverTicket objects. Reason values: WORKER_REFUSED (worker rejected warehouse weights), WAREHOUSE_REJECTED (warehouse refused the bag before weighing)."
     }
 ]
 
